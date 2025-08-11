@@ -13,6 +13,9 @@ on:
   repository_dispatch:
     types: [new_phigros_version]
 
+  permissions:
+    contents: write # 允许对仓库内容（代码）进行写操作
+
 jobs:
   unpack-and-distribute:
     runs-on: ubuntu-latest
