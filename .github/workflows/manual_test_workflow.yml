@@ -56,6 +56,35 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
+      - name: Commit Artifacts to This Repository
+        run: |
+          echo "Staging generated files into an 'output' directory..."
+          # 创建一个统一的输出文件夹，防止根目录混乱
+          mkdir -p output
+
+          # 将所有生成的文件夹移动到 output 文件夹内
+          # 如果文件夹不存在，`mv` 会报错，所以我们先判断一下
+          [ -d "info" ] && mv info/ ./output/
+          [ -d "illustration" ] && mv illustration/ ./output/
+          [ -d "illustrationBlur" ] && mv illustrationBlur/ ./output/
+          [ -d "illustrationLowRes" ] && mv illustrationLowRes/ ./output/
+          [ -d "avatar" ] && mv avatar/ ./output/
+          [ -d "music" ] && mv music/ ./output/
+          [ -d "chart" ] && mv chart/ ./output/
+          
+          # 将 output 文件夹添加到 Git 暂存区
+          git add output/
+
+          # 检查是否有文件变动（staged），只有在有变动时才提交
+          if ! git diff --staged --quiet; then
+            echo "Changes detected in artifacts, committing to this repo..."
+            git commit -m "chore(artifacts): 自动归档产物 (版本 ${{ github.event.client_payload.version_name || 'MANUAL' }})"
+            # 推送回当前分支。GITHUB_TOKEN 是由 GitHub Actions 自动提供的，有权限推送到本仓库
+            git push
+          else
+            echo "No new artifacts generated, skipping commit to this repo."
+          fi
+
       # 7. 处理 phi-plugin-ill 仓库 (曲绘等图片)
       - name: Push Illustrations to phi-plugin-ill
         env:

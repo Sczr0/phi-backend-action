@@ -2,23 +2,36 @@ import os
 import sys
 import subprocess
 import requests
-
 def download_file(url, filename):
-    """使用requests下载文件，带进度条"""
+    """使用requests下载文件，只在关键节点打印进度，避免刷屏"""
     print(f"开始下载: {url}")
-    with requests.get(url, stream=True) as r:
-        r.raise_for_status()
-        total_size = int(r.headers.get('content-length', 0))
-        with open(filename, 'wb') as f:
+    print(f"保存到: {filename}")
+    try:
+        with requests.get(url, stream=True, timeout=300) as r: # 增加5分钟超时
+            r.raise_for_status()
+            total_size = int(r.headers.get('content-length', 0))
+            if total_size == 0:
+                print("警告：无法获取文件大小，无法显示进度。")
+            
             downloaded = 0
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
-                downloaded += len(chunk)
-                progress = (downloaded / total_size) * 100
-                sys.stdout.write(f"\r下载进度: {progress:.2f}%")
-                sys.stdout.flush()
-    print("\n下载完成！")
+            # 我们设置一个标记，只在每下载10%时报告一次进度
+            progress_marker = 10 
 
+            with open(filename, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size > 0:
+                        progress = (downloaded / total_size) * 100
+                        if progress >= progress_marker:
+                            print(f"下载进度: {progress:.0f}%")
+                            progress_marker += 10 # 下一个报告点是再增加10%
+        
+        print("下载完成！")
+
+    except requests.exceptions.RequestException as e:
+        print(f"\n!! 下载失败: {e}")
+        sys.exit(1)
 def run_script(script_name, apk_path):
     """运行一个子脚本，并检查是否成功"""
     print(f"\n--- 开始运行脚本: {script_name} ---")
