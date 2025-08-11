@@ -1,0 +1,111 @@
+name: Unpack APK and Distribute Files
+
+# 触发器配置：
+# 1. 允许手动触发，方便我们测试
+# 2. 允许被Worker通过API调用触发
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: '输入要测试的APK下载链接'
+        required: true
+  
+  repository_dispatch:
+    types: [new_phigros_version]
+
+jobs:
+  unpack-and-distribute:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. 下载当前仓库的代码（包含所有python脚本和依赖）
+      - name: Checkout Main Repo
+        uses: actions/checkout@v4
+
+      # 2. 安装系统依赖 (用于音频解码)
+      - name: Install System Dependencies (Ogg & Vorbis)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvorbis-dev libogg-dev
+
+      # 3. 设置Python环境
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      # 4. 安装Python库
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # 5. 运行我们的主脚本，生成所有文件
+      - name: Run Main Orchestrator Script
+        env:
+          APK_DOWNLOAD_URL: ${{ github.event.inputs.apk_url || github.event.client_payload.download_url }}
+        run: |
+          python main.py
+      
+      # -------------------------------------------------------------
+      # ▼▼▼ 以下是新增的文件分发逻辑 ▼▼▼
+      # -------------------------------------------------------------
+
+      # 6. 配置Git，让它知道提交者是谁
+      - name: Configure Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      # 7. 处理 phi-plugin-ill 仓库 (曲绘等图片)
+      - name: Push Illustrations to phi-plugin-ill
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          echo "Cloning target repo: phi-plugin-ill"
+          # 使用我们存储的PAT进行克隆，克隆到一个临时文件夹 ill_repo
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/Catrong/phi-plugin-ill.git" ill_repo
+          
+          echo "Copying new illustration files..."
+          # 假设你的脚本把图片生成在这些文件夹里
+          # rsync -a 会递归复制文件夹内容，并且只更新变动的文件，非常高效
+          # 注意：源文件夹后面的 / 很重要，表示复制文件夹的内容，而不是文件夹本身
+          rsync -av --delete ./illustration/ ill_repo/ill/
+          rsync -av --delete ./illustrationBlur/ ill_repo/illBlur/
+          rsync -av --delete ./illustrationLowRes/ ill_repo/illLow/
+          
+          cd ill_repo
+          # 检查是否有文件变动
+          if ! git diff --quiet; then
+            echo "Changes detected, committing and pushing..."
+            git add .
+            git commit -m "feat(ill): 自动更新曲绘资源 (版本 ${{ github.event.client_payload.version_name || 'MANUAL' }})"
+            git push
+          else
+            echo "No changes in illustrations, skipping push."
+          fi
+          cd .. # 返回上一级目录
+
+      # 8. 处理 Phi-Backend 仓库 (数据文件)
+      - name: Push Data to Phi-Backend
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          echo "Cloning target repo: Phi-Backend"
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/Sczr0/Phi-Backend.git" backend_repo
+          
+          echo "Copying new data files..."
+          # 确保目标文件夹存在
+          mkdir -p backend_repo/info
+          # 假设你的脚本把数据文件生成在 ./info 文件夹
+          rsync -av ./info/ backend_repo/info/
+          
+          cd backend_repo
+          if ! git diff --quiet; then
+            echo "Changes detected, committing and pushing..."
+            git add .
+            git commit -m "feat(info): 自动更新数据文件 (版本 ${{ github.event.client_payload.version_name || 'MANUAL' }})"
+            git push
+          else
+            echo "No changes in data files, skipping push."
+          fi
+          cd ..
