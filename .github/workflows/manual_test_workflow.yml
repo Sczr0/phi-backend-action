@@ -93,7 +93,7 @@ jobs:
         run: |
           echo "Cloning target repo: phi-plugin-ill"
           # 使用我们存储的PAT进行克隆，克隆到一个临时文件夹 ill_repo
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/Catrong/phi-plugin-ill.git" ill_repo
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/Sczr0/phi-plugin-ill.git" ill_repo
           
           echo "Copying new illustration files..."
           # rsync -a 会递归复制文件夹内容，并且只更新变动的文件，非常高效
