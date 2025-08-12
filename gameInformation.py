@@ -40,20 +40,53 @@ def run(path):
             for i in range(len(song["difficulty"])):
                 song["difficulty"][i] = str(round(song["difficulty"][i], 1))
             song["songsId"] = song["songsId"][:-2]
-            difficulty.append([song["songsId"]]+song["difficulty"])
-            table.append((song["songsId"], song["songsName"], song["composer"], song["illustrator"], *song["charter"]))
+            
+            # 确保 difficulty 有 4 个元素 (EZ, HD, IN, AT)，不足的用空字符串填充
+            diff_item = [song["songsId"]]
+            for i in range(4):
+                if i < len(song["difficulty"]):
+                    diff_item.append(song["difficulty"][i])
+                else:
+                    diff_item.append("")
+            difficulty.append(diff_item)
+            
+            # 构建 table 数据，格式为：id, song, composer, illustrator, EZ, HD, IN, AT
+            table_item = [
+                song["songsId"],
+                song["songsName"],
+                song["composer"],
+                song["illustrator"]
+            ]
+            # 添加难度值
+            for i in range(4):
+                if i < len(song["difficulty"]):
+                    table_item.append(song["difficulty"][i])
+                else:
+                    table_item.append("")
+            table.append(table_item)
 
     print(difficulty)
     print(table)
 
-    with open("info/difficulty.tsv", "w", encoding="utf8") as f:
+    with open("info/difficulty.csv", "w", encoding="utf8") as f:
+        # 写入 CSV 头部
+        f.write("id,EZ,HD,IN,AT\n")
         for item in difficulty:
-            f.write("\t".join(map(str, item)))
+            f.write(",".join(map(str, item)))
             f.write("\n")
 
-    with open("info/info.tsv", "w", encoding="utf8") as f:
+    with open("info/info.csv", "w", encoding="utf8") as f:
+        # 写入 CSV 头部
+        f.write("id,song,composer,illustrator,EZ,HD,IN,AT\n")
         for item in table:
-            f.write("\t".join(item))
+            # 处理字段中可能包含的逗号，用双引号包裹
+            formatted_item = []
+            for field in item:
+                if isinstance(field, str) and "," in field:
+                    formatted_item.append(f'"{field}"')
+                else:
+                    formatted_item.append(str(field))
+            f.write(",".join(formatted_item))
             f.write("\n")
 
     single = []

@@ -61,7 +61,9 @@ jobs:
 
       - name: Commit Artifacts to This Repository
         run: |
-          echo "Staging generated files into an 'output' directory..."
+          echo "Cleaning up old artifacts and staging new ones..."
+          # 清理旧的 output 文件夹，确保一个干净的开始
+          rm -rf output
           # 创建一个统一的输出文件夹，防止根目录混乱
           mkdir -p output
 
@@ -87,58 +89,3 @@ jobs:
           else
             echo "No new artifacts generated, skipping commit to this repo."
           fi
-
-      # 7. 处理 phi-plugin-ill 仓库 (曲绘等图片)
-      - name: Push Illustrations to phi-plugin-ill
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          echo "Cloning target repo: phi-plugin-ill"
-          # 使用我们存储的PAT进行克隆，克隆到一个临时文件夹 ill_repo
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/Catrong/phi-plugin-ill.git" ill_repo
-          
-          echo "Copying new illustration files..."
-          # 假设你的脚本把图片生成在这些文件夹里
-          # rsync -a 会递归复制文件夹内容，并且只更新变动的文件，非常高效
-          # 注意：源文件夹后面的 / 很重要，表示复制文件夹的内容，而不是文件夹本身
-            rsync -av --delete ./output/illustration/ ill_repo/ill/
-            rsync -av --delete ./output/illustrationBlur/ ill_repo/illBlur/
-            rsync -av --delete ./output/illustrationLowRes/ ill_repo/illLow/
-            rsync -av --delete ./output/avatar/ ill_repo/avatar/
-          
-          cd ill_repo
-          # 检查是否有文件变动
-          if ! git diff --quiet; then
-            echo "Changes detected, committing and pushing..."
-            git add .
-            git commit -m "feat(ill): 自动更新曲绘资源 (版本 ${{ github.event.client_payload.version_name || 'MANUAL' }})"
-            git push
-          else
-            echo "No changes in illustrations, skipping push."
-          fi
-          cd .. # 返回上一级目录
-
-      # 8. 处理 Phi-Backend 仓库 (数据文件)
-      - name: Push Data to Phi-Backend
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          echo "Cloning target repo: Phi-Backend"
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/Sczr0/Phi-Backend.git" backend_repo
-          
-          echo "Copying new data files..."
-          # 确保目标文件夹存在
-          mkdir -p backend_repo/info
-          # 假设你的脚本把数据文件生成在 ./info 文件夹
-          rsync -av ./output/info/ backend_repo/info/
-          
-          cd backend_repo
-          if ! git diff --quiet; then
-            echo "Changes detected, committing and pushing..."
-            git add .
-            git commit -m "feat(info): 自动更新数据文件 (版本 ${{ github.event.client_payload.version_name || 'MANUAL' }})"
-            git push
-          else
-            echo "No changes in data files, skipping push."
-          fi
-          cd ..
