@@ -127,7 +127,7 @@ jobs:
           # 确保目标文件夹存在
           mkdir -p backend_repo/info
           # 假设你的脚本把数据文件生成在 ./info 文件夹
-          rsync -av --delete ./output/info/ backend_repo/info/
+          rsync -av ./output/info/ backend_repo/info/
           
           cd backend_repo
           if ! git diff --quiet; then
