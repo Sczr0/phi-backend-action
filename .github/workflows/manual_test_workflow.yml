@@ -101,9 +101,10 @@ jobs:
           # 假设你的脚本把图片生成在这些文件夹里
           # rsync -a 会递归复制文件夹内容，并且只更新变动的文件，非常高效
           # 注意：源文件夹后面的 / 很重要，表示复制文件夹的内容，而不是文件夹本身
-          rsync -av --delete ./illustration/ ill_repo/ill/
-          rsync -av --delete ./illustrationBlur/ ill_repo/illBlur/
-          rsync -av --delete ./illustrationLowRes/ ill_repo/illLow/
+            rsync -av --delete ./output/illustration/ ill_repo/ill/
+            rsync -av --delete ./output/illustrationBlur/ ill_repo/illBlur/
+            rsync -av --delete ./output/illustrationLowRes/ ill_repo/illLow/
+            rsync -av --delete ./output/avatar/ ill_repo/avatar/
           
           cd ill_repo
           # 检查是否有文件变动
@@ -129,7 +130,7 @@ jobs:
           # 确保目标文件夹存在
           mkdir -p backend_repo/info
           # 假设你的脚本把数据文件生成在 ./info 文件夹
-          rsync -av ./info/ backend_repo/info/
+          rsync -av ./output/info/ backend_repo/info/
           
           cd backend_repo
           if ! git diff --quiet; then
