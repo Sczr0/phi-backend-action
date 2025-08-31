@@ -36,7 +36,7 @@ def run_script(script_name, apk_path):
     """运行一个子脚本，并检查是否成功"""
     print(f"\n--- 开始运行脚本: {script_name} ---")
     # 使用subprocess来调用你的脚本，就像在命令行里运行一样
-    result = subprocess.run([sys.executable, script_name, apk_path], capture_output=True, text=True, encoding='utf-8')
+    result = subprocess.run([sys.executable, script_name, apk_path], capture_output=True, text=True, encoding='utf-8', errors='replace')
     
     # 打印脚本的输出，方便调试
     print(result.stdout)
