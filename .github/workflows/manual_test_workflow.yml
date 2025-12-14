@@ -1,141 +1,145 @@
 name: Unpack APK and Distribute Files
 
-# 触发器配置：
-# 1. 允许手动触发，方便我们测试
-# 2. 允许被Worker通过API调用触发
 on:
   workflow_dispatch:
     inputs:
       apk_url:
         description: '输入要测试的APK下载链接'
         required: true
-  
   repository_dispatch:
     types: [new_phigros_version]
 
 permissions:
-  contents: write # 允许对仓库内容（代码）进行写操作
+  contents: write
 
 jobs:
   unpack-and-distribute:
     runs-on: ubuntu-latest
+    timeout-minutes: 60 # 设置超时，防止挂死耗尽额度
+
     steps:
-      # 1. 下载当前仓库的代码（包含所有python脚本和依赖）
+      # 1. 清理磁盘空间 (关键步骤)
+      # GitHub Runner 预装了很多东西，解包大游戏很容易爆磁盘
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo apt-get clean
+
+      # 2. 检出当前代码
       - name: Checkout Main Repo
         uses: actions/checkout@v4
 
-      # 2. 安装系统依赖 (用于音频解码)
-      - name: Install System Dependencies (Ogg & Vorbis)
+      # 3. 安装系统依赖 (合并安装以节省时间)
+      # 必须安装 aria2 才能配合新的 Python 脚本使用
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvorbis-dev libogg-dev
+          sudo apt-get install -y libvorbis-dev libogg-dev aria2
 
-      # 3. 设置Python环境
+      # 4. Python 环境
       - name: Set up Python 3.9
         uses: actions/setup-python@v5
         with:
           python-version: '3.9'
+          cache: 'pip' # 自动缓存 pip 依赖
 
-      # 4. 安装Python库
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # 5. 运行我们的主脚本，生成所有文件
+      # 5. 运行主脚本
       - name: Run Main Orchestrator Script
         env:
           APK_DOWNLOAD_URL: ${{ github.event.inputs.apk_url || github.event.client_payload.download_url }}
+          # 增加 BUFFER设置，防止 python print 导致 actions 卡死
+          PYTHONUNBUFFERED: "1" 
         run: |
           python main.py
 
-      # 6. 配置Git，让它知道提交者是谁
-      - name: Configure Git
+      # 6. 配置 Git 用户
+      - name: Configure Git Global
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
+      # 7. 整理产物并推送到当前仓库
       - name: Commit Artifacts to This Repository
         run: |
-          echo "Cleaning up old artifacts and staging new ones..."
-          # 清理旧的 output 文件夹，确保一个干净的开始
+          echo "Organizing artifacts..."
           rm -rf output
-          # 创建一个统一的输出文件夹，防止根目录混乱
           mkdir -p output
 
-          # 将所有生成的文件夹移动到 output 文件夹内
-          # 如果文件夹不存在，`mv` 会报错，所以我们先判断一下
-          [ -d "info" ] && mv info/ ./output/
-          [ -d "illustration" ] && mv illustration/ ./output/
-          [ -d "illustrationBlur" ] && mv illustrationBlur/ ./output/
-          [ -d "illustrationLowRes" ] && mv illustrationLowRes/ ./output/
-          [ -d "avatar" ] && mv avatar/ ./output/
-          [ -d "music" ] && mv music/ ./output/
-          [ -d "chart" ] && mv chart/ ./output/
+          # 安全移动：如果文件夹存在才移动
+          for dir in info illustration illustrationBlur illustrationLowRes avatar music chart; do
+            if [ -d "$dir" ]; then
+              mv "$dir" ./output/
+            fi
+          done
           
-          # 将 output 文件夹添加到 Git 暂存区
           git add output/
 
-          # 检查是否有文件变动（staged），只有在有变动时才提交
           if ! git diff --staged --quiet; then
-            echo "Changes detected in artifacts, committing to this repo..."
+            echo "Changes detected, committing..."
             git commit -m "chore(artifacts): 自动归档产物 (版本 ${{ github.event.client_payload.version_name || 'MANUAL' }})"
-            # 推送回当前分支。GITHUB_TOKEN 是由 GitHub Actions 自动提供的，有权限推送到本仓库
+            # 使用 pull --rebase 防止多人提交冲突
+            git pull --rebase
             git push
           else
-            echo "No new artifacts generated, skipping commit to this repo."
+            echo "No changes detected."
           fi
 
-      # 7. 处理 phi-plugin-ill 仓库 (曲绘等图片)
+      # 8. 推送图片资源 (使用浅克隆优化速度)
       - name: Push Illustrations to phi-plugin-ill
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          echo "Cloning target repo: phi-plugin-ill"
-          # 使用我们存储的PAT进行克隆，克隆到一个临时文件夹 ill_repo
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/Sczr0/phi-plugin-ill.git" ill_repo
+          echo "Cloning target repo (Shallow)..."
+          # --depth 1 只拉取最后一次提交，速度极快
+          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/Sczr0/phi-plugin-ill.git" ill_repo
           
-          echo "Copying new illustration files..."
-          # rsync -a 会递归复制文件夹内容，并且只更新变动的文件，非常高效
-          # 注意：源文件夹后面的 / 很重要，表示复制文件夹的内容，而不是文件夹本身
-            rsync -av --delete ./output/illustration/ ill_repo/ill/
-            rsync -av --delete ./output/illustrationBlur/ ill_repo/illBlur/
-            rsync -av --delete ./output/illustrationLowRes/ ill_repo/illLow/
-            rsync -av --delete ./output/avatar/ ill_repo/avatar/
+          echo "Syncing files..."
+          # 确保目标父目录存在
+          mkdir -p ill_repo/ill ill_repo/illBlur ill_repo/illLow ill_repo/avatar
+
+          # 只有当源目录存在时才执行 rsync，防止报错
+          [ -d "./output/illustration/" ] && rsync -av --delete ./output/illustration/ ill_repo/ill/
+          [ -d "./output/illustrationBlur/" ] && rsync -av --delete ./output/illustrationBlur/ ill_repo/illBlur/
+          [ -d "./output/illustrationLowRes/" ] && rsync -av --delete ./output/illustrationLowRes/ ill_repo/illLow/
+          [ -d "./output/avatar/" ] && rsync -av --delete ./output/avatar/ ill_repo/avatar/
           
           cd ill_repo
-          # 检查是否有文件变动
           if ! git diff --quiet; then
-            echo "Changes detected, committing and pushing..."
             git add .
-            git commit -m "feat(ill): 自动更新曲绘资源 (版本 ${{ github.event.client_payload.version_name || 'MANUAL' }})"
+            git commit -m "feat(ill): 自动更新资源 (版本 ${{ github.event.client_payload.version_name || 'MANUAL' }})"
             git push
           else
-            echo "No changes in illustrations, skipping push."
+            echo "No changes in illustrations."
           fi
-          cd .. # 返回上一级目录
 
-      # 8. 处理 Phi-Backend 仓库 (数据文件)
+      # 9. 推送数据文件 (使用浅克隆优化速度)
       - name: Push Data to Phi-Backend
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          echo "Cloning target repo: Phi-Backend"
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/Sczr0/Phi-Backend.git" backend_repo
+          echo "Cloning target repo (Shallow)..."
+          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/Sczr0/Phi-Backend.git" backend_repo
           
-          echo "Copying new data files..."
-          # 确保目标文件夹存在
+          echo "Syncing data..."
           mkdir -p backend_repo/info
-          # 假设你的脚本把数据文件生成在 ./info 文件夹
-          rsync -av ./output/info/ backend_repo/info/
+          
+          if [ -d "./output/info/" ]; then
+            rsync -av ./output/info/ backend_repo/info/
+          fi
           
           cd backend_repo
           if ! git diff --quiet; then
-            echo "Changes detected, committing and pushing..."
             git add .
-            git commit -m "feat(info): 自动更新数据文件 (版本 ${{ github.event.client_payload.version_name || 'MANUAL' }})"
+            git commit -m "feat(info): 自动更新数据 (版本 ${{ github.event.client_payload.version_name || 'MANUAL' }})"
             git push
           else
-            echo "No changes in data files, skipping push."
+            echo "No changes in data."
           fi
-          cd ..

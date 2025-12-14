@@ -65,8 +65,8 @@ def run(path):
                     table_item.append("")
             table.append(table_item)
 
-    print(difficulty)
-    print(table)
+    # print(difficulty)
+    # print(table)
 
     with open("info/difficulty.csv", "w", encoding="utf8") as f:
         # 写入 CSV 头部
@@ -104,8 +104,8 @@ def run(path):
     with open("info/illustration.txt", "w", encoding="utf8") as f:
         for item in illustration:
             f.write("%s\n" % item)
-    print(single)
-    print(illustration)
+    # print(single)
+    # print(illustration)
 
     D = {}
     for item in Collections.collectionItems:
