@@ -96,10 +96,26 @@ def save(key, entry):
         # save_music(f"music/{key}.wav", obj)
 
 
+def bundle_path(entry, bundle_names):
+    # 4.0.0 起 catalog 中的 bundle 名为 <hash1>_<hash2>.bundle，包内实际存放的是 <hash2>.bundle
+    path = "assets/aa/Android/%s" % entry
+    if path in bundle_names:
+        return path
+    hash_index = entry.find("_")
+    if hash_index > 0:
+        stripped = "assets/aa/Android/%s" % entry[hash_index + 1:]
+        if stripped in bundle_names:
+            return stripped
+    return path
+
+
 def run(path):
     with ZipFile(path) as apk:
         with apk.open("assets/aa/catalog.json") as f:
             data = json.load(f)
+
+    with ZipFile(path) as apk:
+        bundle_names = set(apk.namelist())
 
     key = base64.b64decode(data["m_KeyDataString"])
     bucket = base64.b64decode(data["m_BucketDataString"])
@@ -160,7 +176,7 @@ def run(path):
             with ZipFile(path) as apk:
                 for key, entry in table:
                     env = Environment()
-                    env.load_file(apk.read("assets/aa/Android/%s" % entry), name=key)
+                    env.load_file(apk.read(bundle_path(entry, bundle_names)), name=key)
                     for ikey, ientry in env.files.items():
                         save(ikey, ientry)
         else:
@@ -180,11 +196,11 @@ def run(path):
             with ZipFile(path) as apk:
                 for key, entry in table:
                     if key[:7] == "avatar.":
-                        env.load_file(apk.read("assets/aa/Android/%s" % entry), name=key)
+                        env.load_file(apk.read(bundle_path(entry, bundle_names)), name=key)
                         continue
                     for id in l:
                         if key.startswith("%s.0/" % id):
-                            env.load_file(apk.read("assets/aa/Android/%s" % entry), name=key)
+                            env.load_file(apk.read(bundle_path(entry, bundle_names)), name=key)
                             break
             for ikey, ientry in env.files.items():
                 # print(ikey, ientry)
