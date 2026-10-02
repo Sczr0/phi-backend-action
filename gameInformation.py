@@ -6,18 +6,41 @@ import zipfile
 
 DEBUG = False
 
+def read_data_file(apk, namelist, name):
+    # 与 PhiInfo 的 GetDataFile 一致：优先直接条目，其次合并 .split 分片
+    path = "assets/bin/Data/" + name
+    if path in namelist:
+        return apk.read(path)
+    parts = []
+    index = 0
+    while "%s.split%d" % (path, index) in namelist:
+        parts.append(apk.read("%s.split%d" % (path, index)))
+        index += 1
+    return b"".join(parts) if parts else None
+
+
 def run(path):
     with open("typetree.json") as f:
         typetree = json.load(f)
     env = Environment()
     with zipfile.ZipFile(path) as apk:
-        with apk.open("assets/bin/Data/globalgamemanagers.assets") as f:
-            env.load_file(f.read(), name="assets/bin/Data/globalgamemanagers.assets")
-        with apk.open("assets/bin/Data/level0") as f:
-            env.load_file(f.read())
+        namelist = set(apk.namelist())
+        for name in ("globalgamemanagers.assets", "level0"):
+            data = read_data_file(apk, namelist, name)
+            if data is not None:
+                env.load_file(data, name="assets/bin/Data/" + name)
+        # 4.0.1 起 level 等序列化文件被打包进 assets/bin/Data/data.unity3d
+        player_data = "assets/bin/Data/data.unity3d"
+        if player_data in namelist:
+            env.load_file(apk.read(player_data), name=player_data)
+    seen = set()
     for obj in env.objects:
         if obj.type.name != "MonoBehaviour":
             continue
+        identity = (obj.assets_file.name, obj.path_id)
+        if identity in seen:
+            continue
+        seen.add(identity)
         data = obj.read()
         if data.m_Script.get_obj().read().name == "GameInformation":
             GameInformation = obj.read_typetree(typetree["GameInformation"])
