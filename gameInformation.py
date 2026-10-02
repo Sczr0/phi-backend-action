@@ -6,9 +6,12 @@ import zipfile
 
 DEBUG = False
 
+DATA_PREFIX = "assets/bin/Data/"
+
+
 def read_data_file(apk, namelist, name):
     # 与 PhiInfo 的 GetDataFile 一致：优先直接条目，其次合并 .split 分片
-    path = "assets/bin/Data/" + name
+    path = DATA_PREFIX + name
     if path in namelist:
         return apk.read(path)
     parts = []
@@ -19,20 +22,37 @@ def read_data_file(apk, namelist, name):
     return b"".join(parts) if parts else None
 
 
+def load_data_files(env, apk):
+    # 4.0.1 起 level/sharedassets 等被并入 data.unity3d，更早版本则散落为独立条目。
+    # 全部序列化文件都要加载：MonoBehaviour 的 m_Script 可能跨文件引用 MonoScript。
+    namelist = set(apk.namelist())
+    loaded = set()
+    for entry in namelist:
+        if not entry.startswith(DATA_PREFIX):
+            continue
+        name = entry[len(DATA_PREFIX):]
+        if "/" in name:
+            continue
+        if ".split" in name:
+            name = name[:name.index(".split")]
+        if name in loaded:
+            continue
+        if not (name.endswith(".assets") or name.endswith(".unity3d") or "." not in name):
+            continue
+        data = read_data_file(apk, namelist, name)
+        if data is None:
+            continue
+        env.load_file(data, name=DATA_PREFIX + name)
+        loaded.add(name)
+
+
 def run(path):
     with open("typetree.json") as f:
         typetree = json.load(f)
     env = Environment()
+    env.path = os.getcwd()
     with zipfile.ZipFile(path) as apk:
-        namelist = set(apk.namelist())
-        for name in ("globalgamemanagers.assets", "level0"):
-            data = read_data_file(apk, namelist, name)
-            if data is not None:
-                env.load_file(data, name="assets/bin/Data/" + name)
-        # 4.0.1 起 level 等序列化文件被打包进 assets/bin/Data/data.unity3d
-        player_data = "assets/bin/Data/data.unity3d"
-        if player_data in namelist:
-            env.load_file(apk.read(player_data), name=player_data)
+        load_data_files(env, apk)
     seen = set()
     for obj in env.objects:
         if obj.type.name != "MonoBehaviour":
@@ -41,12 +61,19 @@ def run(path):
         if identity in seen:
             continue
         seen.add(identity)
-        data = obj.read()
-        if data.m_Script.get_obj().read().name == "GameInformation":
+        try:
+            data = obj.read()
+            script = data.m_Script.get_obj()
+            if script is None:
+                continue
+            script_name = script.read().name
+        except Exception:
+            continue
+        if script_name == "GameInformation":
             GameInformation = obj.read_typetree(typetree["GameInformation"])
-        elif data.m_Script.get_obj().read().name == "GetCollectionControl":
+        elif script_name == "GetCollectionControl":
             Collections = obj.read_typetree(typetree["GetCollectionControl"], True)
-        elif data.m_Script.get_obj().read().name == "TipsProvider":
+        elif script_name == "TipsProvider":
             Tips = obj.read_typetree(typetree["TipsProvider"], True)
 
     difficulty = []
